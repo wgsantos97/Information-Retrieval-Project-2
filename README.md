@@ -3,11 +3,10 @@
 ## Brief Description
 
 > This project will focus on sentiment analysis. I will be using the same dataset I took from goodreads, on graphic novels, to focus on predicting the likelihood that a review is good or bad.  To prevent what happened last time where I had 500000+ entries to use, which slowed down my program, I will reduce the set to 10000 entries.
-> The code will analyze the 'review_text' to determine the sentiment, whether positive, negative, or netural, and to relay the level of accuracy to the machine learning algorithm, we will use the 'rating' field.
+> The code will analyze the 'review_text' to determine the sentiment, whether positive or negative, and to relay the level of accuracy to the machine learning algorithm, we will use the 'rating' field.
 
-    0-2 -> negative 
-    3   -> neutral
-    4-5 -> positive
+    0-3 -> negative (0)
+    4-5 -> positive (1)
 
 ___
 
@@ -69,6 +68,7 @@ ___
     "book_id": "18471619",
     "title": "Sherlock Holmes and the Vampires of London",
     "rating": 3,
+    "sentiment": 0,
     "review_text":
         "Sherlock Holmes and the Vampires of London
         ...
