@@ -1,4 +1,4 @@
-# Algorithm 2: Naive Bayes Model
+# Algorithm 1: Naive Bayes Model
 
 ## Summary
 
