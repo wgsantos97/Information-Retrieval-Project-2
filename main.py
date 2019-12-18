@@ -2,23 +2,29 @@
 import os
 import json
 import nltk
+import fastai
 import sklearn
 import numpy as np
+import pandas as pd
 from os import path
 from random import shuffle
 from datetime import datetime
-# nltk
+# from fastai
+from fastai.text import *
+from fastai.callbacks import *
+# from nltk
 from nltk import pos_tag
 from nltk import word_tokenize
 from nltk.corpus import wordnet
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
-# sklearn
+# from sklearn
 from sklearn import metrics
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import normalize
 from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 # CLASSES
@@ -29,10 +35,20 @@ class Review:
         self.rating = int(js["rating"])
         self.sentiment = int(js["sentiment"])
         self.review_text = js["review_text"]
-        self.processed_text = self.review_text
+        self.processed_tokens = self.review_text
 
     def __repr__(self):
         return self.title
+
+    def to_dict(self):
+        return {
+            "book_id" : self.book_id,
+            "title" : self.title,
+            "rating" : self.rating,
+            "sentiment" : self.sentiment,
+            "review_text" : self.review_text,
+            "processed_tokens" : self.processed_tokens,
+        }
 
 class Project2:
     def __init__(self, file, cap = 50000):
@@ -62,7 +78,8 @@ class Project2:
                 positives = positives + 1
             
             r = Review(d)
-            r.processed_text = self.processText(r.processed_text)
+            r.processed_tokens = self.processText(r.processed_tokens)
+            r.processed_tokens = " ".join(r.processed_tokens)
             self.reviewList.append(r)
 
             idx = idx + 1
@@ -109,7 +126,7 @@ class Project2:
         return result
     ### NLP_Processing END
 
-class Base_Algorithm:
+class Naive_Bayes:
     def __init__(self,l,f):
         self.filename = f
         self.reviewList = l
@@ -126,7 +143,7 @@ class Base_Algorithm:
         idx=0
         while(len(self.training_data)<n):
             if(idx>self.population):
-                print("WARNING (108:17): Infinite loop detected. Breaking.")
+                print("WARNING (133:17): Infinite loop detected. Breaking.")
                 break
             shuffle(temp)
             self.training_data.append(temp.pop())
@@ -134,26 +151,16 @@ class Base_Algorithm:
         self.test_data.extend(temp)
 
     def process(self):
-        text = [' '.join(t.processed_text) for t in self.training_data]
+        text = [' '.join(t.processed_tokens) for t in self.training_data]
         self.vect.fit(text)
         X_training = self.vect.transform(text)
         Y_training = [t.sentiment for t in self.training_data]
 
-        test = [' '.join(t.processed_text) for t in self.test_data]
+        test = [' '.join(t.processed_tokens) for t in self.test_data]
         test = self.vect.transform(test)
         expected = [t.sentiment for t in self.test_data]
         print("X Length: " + str(X_training.shape))
         return X_training,Y_training,test,expected
-    
-    def learn(self):
-        raise Exception('ERROR (91:9) - the abstract method \'learn\' is being called from parent class.')
-    
-    def writeToFile(self):
-        raise Exception('ERROR (94:9) - the abstract method \'writeToFile\' is being called from parent class.')
-
-class Naive_Bayes(Base_Algorithm):
-    def __init__(self,l,f):
-        super().__init__(l,f)
     
     def learn(self):
         # training
@@ -168,12 +175,62 @@ class Naive_Bayes(Base_Algorithm):
     def writeToFile(self):
         print("Naive Bayes is writing to file: " + self.filename)
 
+class ULMFit:
+    def __init__(self,l,f):
+        self.filename = f
+        self.reviewList = l
+        self.test_data = list()
+        self.training_data = list()
+        self.vect = TfidfVectorizer()
+        self.population = len(self.reviewList)
+
+        df = pd.DataFrame.from_records([review.to_dict() for review in l])
+        self.df_train, self.df_test = train_test_split(df.iloc[:,[3,4]], test_size = 0.3, random_state = 12)
+        self.learn()
+
+    def learn(self):
+        data_lm = TextLMDataBunch.from_df(train_df = self.df_train, valid_df = self.df_test, min_freq = 1, path = "")
+        data_clas = TextClasDataBunch.from_df(path = "", train_df = self.df_train, valid_df = self.df_test, vocab=data_lm.train_ds.vocab, bs=32)
+
+        learn = language_model_learner(data_lm, arch = AWD_LSTM, pretrained = True, drop_mult=0.7)
+        learn.fit_one_cycle(1, 1e-2)   # one epoch
+
+        learn.unfreeze()
+        learn = text_classifier_learner(data_clas, AWD_LSTM, drop_mult=0.3)
+        learn.fit_one_cycle(1, 1e-3)
+
+        learn.freeze_to(-2)
+        learn.fit_one_cycle(1, slice(5e-3/2, 5e-3))
+
+        learn.freeze_to(-3)
+        learn.fit_one_cycle(1, slice(5e-3/(2.6**4),5e-3), moms=(0.8,0.7))
+
+        learn.unfreeze()
+        learn.fit_one_cycle(1, slice(2e-3/100, 2e-3))
+
+        preds, targets = learn.get_preds()
+        predictions = np.argmax(preds, axis=1)
+        print("Preds Size: " + str(len(preds)))
+        print(preds[:10])
+        print("Prediction Size: " + str(len(predictions)))
+        print(predictions[:10])
+        print("Targets Size: " + str(len(targets)))
+        print(targets[:10])
+
+        print("RESULTS SUMMARY")
+        print("Accuracy Score: ")
+        print(accuracy_score(predictions,targets))
+        print("\nConfusion Matrix (Diagonal): ")
+        print(confusion_matrix(predictions,targets).diagonal())
+        print("\nConfusion Matrix (Sum): ")
+        print(confusion_matrix(predictions,targets).sum(axis=1))
 
 # MAIN
 def main():
     f = open("Data/graphic_novel_final.json",'r')
-    project2 = Project2(f,10000)
+    project2 = Project2(f,1000)
     f.close()
-    nb = Naive_Bayes(project2.reviewList,"test.md")
+    # alg1 = Naive_Bayes(project2.reviewList,"test.md")
+    alg2 = ULMFit(project2.reviewList,"test.md")
 
 main()
